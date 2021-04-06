@@ -111,7 +111,7 @@ def execute(args):
             os.makedirs(dir_path)
 
     # Create merged activity mask
-    mask_path_list = args['activity_masks'].values()
+    mask_path_list = list(args['activity_masks'].values())
     all_activity_mask = os.path.join(args['workspace'], 'all_activity_mask.tif')
     aligned_masks_dir = os.path.join(args['workspace'], 'aligned_masks')
     if not os.path.exists(aligned_masks_dir):
@@ -323,6 +323,9 @@ def _build_ip_table(
             have the columns:
                 SDU_ID,pixel_count,area_ha,maskpixct,maskpixha,mv_ida,mv_ida_perHA
     """
+    
+    # print(f"marginal_value_lookup = {marginal_value_lookup}")
+    
     if activity_name is not None:
         try:
             activity_index = activity_list.index(activity_name)
@@ -343,14 +346,17 @@ def _build_ip_table(
         #         sdu_col_name, activity_name, activity_name))
         # This gets the "first" value in the dict, then the keys of that dict
         # also makes sense to sort them so it's easy to navigate the CSV.
+        # marginal_value_ids = sorted(
+        #     marginal_value_lookup.values().next()[1].keys())
         marginal_value_ids = sorted(
-            marginal_value_lookup.values().next()[1].keys())
+            list(marginal_value_lookup.values())[0][1].keys())
+        print(f"marginal_value_ids = {marginal_value_ids}")
         n_mv_ids = len(marginal_value_ids)
         target_ip_file.write((",%s" * n_mv_ids) % tuple(marginal_value_ids))
         # target_ip_file.write(
         #     (",%s_perHA" * n_mv_ids) % tuple(marginal_value_ids))
         if sdu_serviceshed_coverage is not None:
-            first_serviceshed_lookup = sdu_serviceshed_coverage.values().next()
+            first_serviceshed_lookup = list(sdu_serviceshed_coverage.values())[0]
         else:
             first_serviceshed_lookup = {}
         serviceshed_ids = sorted(first_serviceshed_lookup.keys())
@@ -445,8 +451,7 @@ def _clean_negative_nodata_values(
         print(
             "Base raster doesn't have a large nodata value; it's likely"
             " not one of the corrupt float32.min rasters we were dealing"
-            " with.  Copying %s to %s without modification.") % (
-                base_raster_path, target_clean_raster_path)
+            f" with.  Copying {base_raster_path} to {target_clean_raster_path} without modification.")
         shutil.copy(base_raster_path, target_clean_raster_path)
 
     pygeoprocessing.new_raster_from_base(
@@ -497,7 +502,7 @@ def _aggregate_marginal_values(
     # TODO: drop activity mask, get activity from the rasters - require nodata for non-transition pixels
 
     print('marginal_value_lookup: {}'.format(marginal_value_lookup))
-    marginal_value_ids = marginal_value_lookup.keys()
+    marginal_value_ids = list(marginal_value_lookup.keys())
     with tempfile.NamedTemporaryFile(dir='.', delete=False) as id_raster_file:
         id_raster_path = id_raster_file.name
 
@@ -898,6 +903,46 @@ def _copy_sdu_file(source, dest):
         shutil.copy(f, new_f)
 
 
+# def _create_overlapping_activity_mask(mask_path_list, target_file,
+#                                       reference_mask=0):
+
+#     # TODO: get nodata vals from each mask_path, make comparison against those instead of np.nan
+#     # need them as closure in this function, zip with vals to line up
+
+#     mask_nodatas = [
+#         pygeoprocessing.get_raster_info(raster_path)['nodata'][0] for
+#         raster_path in mask_path_list]
+    
+#     ref_info = pygeoprocessing.get_raster_info(mask_path_list[reference_mask])
+#     ref_dtype = ref_info['dtype']
+#     ref_nodata = ref_info['nodata'][0]
+#     pixel_size = ref_info['pixel_size']
+
+#     def pixel_op(*vals):
+#         if all([x == nodata for x, nodata in zip(vals, mask_nodatas)]):
+#             return ref_nodata
+#         else:
+#             return 1
+
+#     pygeoprocessing.raster_calculator(
+#         [(raster, 1) for raster in mask_path_list]
+#     )
+
+
+#     pygeoprocessing.vectorize_datasets(
+#         mask_path_list,
+#         pixel_op,
+#         target_file,
+#         ref_dtype,
+#         ref_nodata,
+#         pixel_size,
+#         bounding_box_mode='dataset',
+#         dataset_to_align_index=reference_mask,
+#         dataset_to_bound_index=reference_mask,
+#     )
+
+
+
 def _create_overlapping_activity_mask(mask_path_list, target_file,
                                       aligned_paths_directory,
                                       reference_mask=0):
@@ -923,9 +968,8 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
         ref_info['pixel_size'], bounding_box_mode=ref_info['bounding_box'])
 
     def all_pixels_have_value(*vals):
-        pixels_with_complete_overlap = numpy.array(
-            vals[0].shape, dtype=numpy.bool)
-        pixels_with_complete_overlap[:] = 1  # assume all valid
+        pixels_with_complete_overlap = numpy.ones(
+            vals[0].shape, dtype=bool)
 
         for index, array in enumerate(vals):
             # numpy.isclose will work for floating-point and integer rasters,

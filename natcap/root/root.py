@@ -24,6 +24,7 @@ from natcap.invest import validation
 from natcap.root import preprocessing
 from natcap.root import postprocessing
 from natcap.root import optimization
+from natcap.root import arith_parser as ap
 
 LOGGER = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ ARGS_SPEC = {
             'name': 'Composite Factor Table (CSV)',
         },
         'spatial_decision_unit_shape': {
-            'type': 'vector',
+            'type': 'freestyle_string',
             'required': True,
             'about': (
                 "Determines the shape of the SDUs used to aggregate "
@@ -261,7 +262,7 @@ def parse_args(ui_args):
         # root_args['mask_raster'] = ui_args['potential_conversion_mask_path']
         root_args['activity_mask_table_path'] = ui_args['activity_mask_table_path']
         root_args['grid_type'] = ui_args['spatial_decision_unit_shape']
-        cell_area = ui_args['spatial_decision_unit_area'] * 10000
+        cell_area = float(ui_args['spatial_decision_unit_area']) * 10000
         if root_args['grid_type'] == 'square':
             root_args['cell_size'] = sqrt(cell_area)
         elif root_args['grid_type'] == 'hexagon':
@@ -271,8 +272,7 @@ def parse_args(ui_args):
         root_args['csv_output_folder'] = os.path.join(root_args['workspace'], 'sdu_value_tables')
 
         root_args['activity_masks'] = _process_activity_mask_table(
-            ui_args['activity_mask_table_path']
-        )
+            ui_args['activity_mask_table_path'])
         root_args['raster_table'] = _process_raster_table(ui_args['marginal_raster_table_path'])
         raster_table = root_args['raster_table']
         print('raster_table.activity_names: {}'.format(raster_table.activity_names))
@@ -588,24 +588,85 @@ def validate_sdu_shape_arg(arg_val):
         raise RootInputError(msg)
 
 
+# def validate_cft_table(rt_path, st_path, cft_path):
+#     rt = pd.read_csv(rt_path)
+#     st = pd.read_csv(st_path)
+#     cft = pd.read_csv(cft_path)
+
+#     raster_factors = list(rt['name'])
+#     shape_factors = []
+#     for _, row in st.iterrows():
+#         sname = row['name']
+#         shape_factors.append(sname)
+#         wcols = row['weight_col'].split(' ')
+#         for wc in wcols:
+#             shape_factors.append('{}_{}'.format(sname, wc))
+#     all_factors = raster_factors + shape_factors
+
+#     invalid_factors = []
+#     for _, row in cft.iterrows():
+#         factors = row['factors'].split(' ')
+#         for f in factors:
+#             if f not in all_factors:
+#                 try:
+#                     float(f)
+#                     continue
+#                 except ValueError:
+#                     invalid_factors.append(f)
+
+#     if len(invalid_factors) > 0:
+#         msg = "Error in CF table: invalid factors found: {}".format(invalid_factors)
+#         raise RootInputError(msg)
+
+
 def validate_cft_table(rt_path, st_path, cft_path):
-    rt = pd.read_csv(rt_path)
-    st = pd.read_csv(st_path)
+    """
+
+    Args:
+        rt_path:
+        st_path:
+        cft_path:
+
+    Returns:
+
+    """
+    if len(cft_path) == 0:
+        return
     cft = pd.read_csv(cft_path)
 
+    # check for correct headers
+    missing_name = False
+    missing_factors = False
+    if 'name' not in cft.columns:
+        missing_name = True
+    if 'factors' not in cft.columns:
+        missing_factors = True
+    if missing_name or missing_factors:
+        raise RootInputError("CFT table is missing columns 'name' and/or 'factors'")
+
+    # get factors listed in raster table
+    rt = pd.read_csv(rt_path)
     raster_factors = list(rt['name'])
+    activity_area_factors = ['{}_ha'.format(f) for f in rt.columns]
+
+    # get factors listed in shapefile table (if provided - shapefile table is optional)
     shape_factors = []
-    for _, row in st.iterrows():
-        sname = row['name']
-        shape_factors.append(sname)
-        wcols = row['weight_col'].split(' ')
-        for wc in wcols:
-            shape_factors.append('{}_{}'.format(sname, wc))
-    all_factors = raster_factors + shape_factors
+    if len(st_path) > 0:
+        st = pd.read_csv(st_path)
+        for _, row in st.iterrows():
+            sname = row['name']
+            shape_factors.append(sname)
+            wcols = row['weight_col'].split(' ')
+            for wc in wcols:
+                shape_factors.append('{}_{}'.format(sname, wc))
+
+    # combined factors - also include math names as valid
+    all_factors = raster_factors + shape_factors + activity_area_factors + ap.ALL_AP_TOKENS
 
     invalid_factors = []
     for _, row in cft.iterrows():
-        factors = row['factors'].split(' ')
+        name = row['name']
+        factors = ap._tokenize(row['factors'])
         for f in factors:
             if f not in all_factors:
                 try:
