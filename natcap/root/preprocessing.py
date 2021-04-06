@@ -641,7 +641,8 @@ def _remove_nonoverlapping_sdus(vector_path, mask_raster_path, key_id_field):
     for mask_offset, mask_block in pygeoprocessing.iterblocks(
             (mask_raster_path, 1)):
         id_block = id_band.ReadAsArray(**mask_offset)
-        valid_mask = mask_block != mask_nodata
+        # valid_mask = mask_block != mask_nodata
+        valid_mask = ~np.isclose(mask_block, mask_nodata)
         covered_ids.update(np.unique(id_block[valid_mask]))
 
     # cleanup the ID raster since we're done with it
@@ -968,27 +969,27 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
         ref_info['pixel_size'], bounding_box_mode=ref_info['bounding_box'])
 
     def all_pixels_have_value(*vals):
-        pixels_with_complete_overlap = numpy.ones(
+        pixels_in_any_mask = numpy.zeros(
             vals[0].shape, dtype=bool)
 
         for index, array in enumerate(vals):
             # numpy.isclose will work for floating-point and integer rasters,
             # direct equality comparison will not.
-            pixels_with_complete_overlap  &= numpy.isclose(
+            pixels_in_any_mask |= ~numpy.isclose(
                 array, mask_nodatas[index])
 
-        output_array = numpy.full(pixels_with_complete_overlap.shape,
-                                  ref_nodata, dtype=ref_info['numpy_type'])
-        output_array[pixels_with_complete_overlap] = 1
+        # output_array = numpy.full(pixels_in_any_mask.shape,
+        #                           ref_nodata, dtype=ref_info['numpy_type'])
+        # output_array[pixels_in_any_mask] = 1
 
-        return pixels_with_complete_overlap
+        return pixels_in_any_mask
 
     pygeoprocessing.raster_calculator(
         [(path, 1) for path in aligned_mask_paths],
         all_pixels_have_value,
         target_file,
         ref_info['datatype'],
-        ref_nodata)
+        0)
 
 
 if __name__ == '__main__':
