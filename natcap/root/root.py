@@ -60,6 +60,13 @@ ARGS_SPEC = {
                 "raster/serviceshed inputs"),
             'name': "Do Preprocessing",
         },
+        'activity_mask_table_path': {
+            'type': 'csv',
+            'required': True,
+            'about': (
+                "Table with paths for activity masks. See User's Guide."),
+            'name': 'Activity Mask Table (CSV)',
+        },
         'marginal_raster_table_path': {
             'type': 'csv',
             'required': True,
@@ -98,16 +105,6 @@ ARGS_SPEC = {
                 "Use an '_' to identify fields of interest within a "
                 "serviceshed shapefile."),
             'name': 'Composite Factor Table (CSV)',
-        },
-        'potential_conversion_mask_path': {
-            'type': 'raster',
-            'required': True,
-            'about': (
-                "Raster that indicates which pixels should be "
-                "considered as potential activity locations.  Values "
-                "must be 1 for activity locations or NODATA for "
-                "excluded locations."),
-            'name': 'Activity Mask Raster',
         },
         'spatial_decision_unit_shape': {
             'type': 'vector',
@@ -251,6 +248,7 @@ def parse_args(ui_args):
 
     if ui_args['do_preprocessing']:
 
+        validate_activity_mask_table(ui_args['activity_mask_table_path'])
         validate_raster_input_table(ui_args['marginal_raster_table_path'])
         validate_shapefile_input_table(ui_args['serviceshed_shapefiles_table'])
         validate_cft_table(ui_args['marginal_raster_table_path'],
@@ -258,7 +256,7 @@ def parse_args(ui_args):
                            ui_args['combined_factor_table_path'])
         validate_sdu_shape_arg(ui_args['spatial_decision_unit_shape'])
 
-        root_args['mask_raster'] = ui_args['potential_conversion_mask_path']
+        # root_args['mask_raster'] = ui_args['potential_conversion_mask_path']
         root_args['grid_type'] = ui_args['spatial_decision_unit_shape']
         cell_area = ui_args['spatial_decision_unit_area'] * 10000
         if root_args['grid_type'] == 'square':
@@ -439,6 +437,10 @@ def _process_objectives_table(ui_args, root_args):
         return optimization_objectives
 
 
+def validate_activity_mask_table(table_path):
+    pass
+
+
 def validate_raster_input_table(raster_table_path):
     rt = pd.read_csv(raster_table_path)
     not_found = []
@@ -608,7 +610,7 @@ class Root(model.InVESTModel):
 
         self.preprocessing_container = inputs.Container(
             args_key=u'preprocessing_container',
-            expandable=False,
+            expandable=True,
             expanded=True,
             label=u'Preprocessing Arguments')
         self.add_input(self.preprocessing_container)
@@ -617,6 +619,11 @@ class Root(model.InVESTModel):
             **_create_input_kwargs_from_args_spec(
                 'do_preprocessing', validate=False))
         self.preprocessing_container.add_input(self.do_preprocessing)
+
+        self.activity_mask_raster_path = inputs.File(
+            **_create_input_kwargs_from_args_spec('activity_mask_table_path'))
+        self.preprocessing_container.add_input(self.activity_mask_raster_path)
+
 
         self.marginal_raster_table_path = inputs.File(
             **_create_input_kwargs_from_args_spec('marginal_raster_table_path'))
@@ -632,9 +639,9 @@ class Root(model.InVESTModel):
             **_create_input_kwargs_from_args_spec('combined_factor_table_path'))
         self.preprocessing_container.add_input(self.combined_factor_table_path)
 
-        self.potential_conversion_mask_path = inputs.File(
-            **_create_input_kwargs_from_args_spec('potential_conversion_mask_path'))
-        self.preprocessing_container.add_input(self.potential_conversion_mask_path)
+        # self.potential_conversion_mask_path = inputs.File(
+        #     **_create_input_kwargs_from_args_spec('potential_conversion_mask_path'))
+        # self.preprocessing_container.add_input(self.potential_conversion_mask_path)
 
 
         self.spatial_decision_unit_shape = inputs.Text(
@@ -647,7 +654,7 @@ class Root(model.InVESTModel):
 
         self.optimization_container = inputs.Container(
             args_key=u'optimization_container',
-            expandable=False,
+            expandable=True,
             expanded=True,
             label=u'Optimization Arguments')
         self.add_input(self.optimization_container)
@@ -687,10 +694,11 @@ class Root(model.InVESTModel):
             args[self.optimization_suffix.args_key] = self.optimization_suffix.value()
         if self.preprocessing_container.value():
             args[self.do_preprocessing.args_key] = self.do_preprocessing.value()
+            args[self.activity_mask_raster_path.args_key] = self.activity_mask_raster_path.value()
             args[self.marginal_raster_table_path.args_key] = self.marginal_raster_table_path.value()
             args[self.serviceshed_shapefiles_table.args_key] = self.serviceshed_shapefiles_table.value()
             args[self.combined_factor_table_path.args_key] = self.combined_factor_table_path.value()
-            args[self.potential_conversion_mask_path.args_key] = self.potential_conversion_mask_path.value()
+            # args[self.potential_conversion_mask_path.args_key] = self.potential_conversion_mask_path.value()
             args[self.spatial_decision_unit_shape.args_key] = self.spatial_decision_unit_shape.value()
             args[self.spatial_decision_unit_area.args_key] = self.spatial_decision_unit_area.value()
 
