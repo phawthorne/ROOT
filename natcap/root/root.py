@@ -250,6 +250,8 @@ def parse_args(ui_args):
 
         validate_activity_mask_table(ui_args['activity_mask_table_path'])
         validate_raster_input_table(ui_args['marginal_raster_table_path'])
+        validate_activity_names_in_amt_and_iprt(ui_args['activity_mask_table_path'],
+                                                ui_args['marginal_raster_table_path'])
         validate_shapefile_input_table(ui_args['serviceshed_shapefiles_table'])
         validate_cft_table(ui_args['marginal_raster_table_path'],
                            ui_args['serviceshed_shapefiles_table'],
@@ -257,6 +259,7 @@ def parse_args(ui_args):
         validate_sdu_shape_arg(ui_args['spatial_decision_unit_shape'])
 
         # root_args['mask_raster'] = ui_args['potential_conversion_mask_path']
+        root_args['activity_mask_table_path'] = ui_args['activity_mask_table_path']
         root_args['grid_type'] = ui_args['spatial_decision_unit_shape']
         cell_area = ui_args['spatial_decision_unit_area'] * 10000
         if root_args['grid_type'] == 'square':
@@ -267,6 +270,9 @@ def parse_args(ui_args):
 
         root_args['csv_output_folder'] = os.path.join(root_args['workspace'], 'sdu_value_tables')
 
+        root_args['activity_masks'] = _process_activity_mask_table(
+            ui_args['activity_mask_table_path']
+        )
         root_args['raster_table'] = _process_raster_table(ui_args['marginal_raster_table_path'])
         raster_table = root_args['raster_table']
         print('raster_table.activity_names: {}'.format(raster_table.activity_names))
@@ -362,6 +368,23 @@ def _process_constraints_table(ui_args):
     return constraints
 
 
+def _process_activity_mask_table(amtpath):
+    """
+    Reads the activity mask table into a dictionary. The expected format of the
+    table is cols 'activity', 'mask_path', and corresponding rows.
+    The created dictionary will have the activities as keys and paths as values.
+    :param amtpath:
+    :return:
+    """
+    amtdict = {}
+    with open(amtpath, 'rU') as f:
+        f.readline()  # discard header
+        for row in f:
+            row_fields = [f.strip() for f in row.split(',')]
+            amtdict[row_fields[0]] = row_fields[1]
+    return amtdict
+
+
 def _process_raster_table(filename):
     """
     TODO: refactor to preserve jsonability
@@ -437,8 +460,39 @@ def _process_objectives_table(ui_args, root_args):
         return optimization_objectives
 
 
-def validate_activity_mask_table(table_path):
-    pass
+def validate_activity_mask_table(activity_mask_table_path):
+    """Check for column names and file existence.
+
+    Expect a table with columns 'activity' and 'mask_path'. Entries in 'mask_path' must point
+    to existing files. This function only confirms existence, not filetype.
+
+    Args:
+        activity_mask_table_path:
+
+    Returns:
+        None
+    """
+    amt = pd.read_csv(activity_mask_table_path)
+
+    amt_req_cols = ['activity', 'mask_path']
+    msg = "Error in AM table: requires two columns named activity and mask_path"
+    if len(amt.columns) != len(amt_req_cols):
+        raise RootInputError(msg)
+    for c, rc in zip(amt.columns, amt_req_cols):
+        if c == rc:
+            continue
+        else:
+            raise RootInputError(msg)
+
+    not_found = []
+    for activity, fp in zip(amt['activity'], amt['mask_path']):
+        if not os.path.isfile(fp):
+            not_found.append((activity, fp))
+    if len(not_found) > 0:
+        msg = "Error in AM table: the following mask rasters could not be located. Please check the filepaths:\n"
+        for missing in not_found:
+            msg += f"\t{missing[0]}: {missing[1]}\n"
+        raise RootInputError(msg)
 
 
 def validate_raster_input_table(raster_table_path):
@@ -452,6 +506,39 @@ def validate_raster_input_table(raster_table_path):
         msg = "Error in IPR table: the following rasters could not be located. Please check the filepaths:\n"
         for f in not_found:
             msg += "\t{}\n".format(f)
+        raise RootInputError(msg)
+
+
+def validate_activity_names_in_amt_and_iprt(amt_path, iprt_path):
+    """
+    Checks to make sure that the same activity names are use in the activity mask table and impact
+    potential raster table. Each activity named in the IPRT should have a mask, and vice versa.
+
+    Args:
+        amt_path:
+        iprt_path:
+
+    Raises:
+        RootInputError
+
+    Returns:
+        None
+    """
+    amt = pd.read_csv(amt_path)
+    iprt = pd.read_csv(iprt_path)
+
+    amt_activities = list(amt['activity'])
+    iprt_activities = list(iprt.columns[1:])
+
+    match = True
+    for a in amt_activities:
+        if a not in iprt_activities:
+            match = False
+    for a in iprt_activities:
+        if a not in amt_activities:
+            match = False
+    if match is False:
+        msg = "Error: activities do not match in Activity Mask table and Impact Potential Raster table. Please check spelling and missing/extra values: {} vs {}".format(amt_activities, iprt_activities)
         raise RootInputError(msg)
 
 
