@@ -980,11 +980,11 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
             pixels_with_complete_overlap &= numpy.isclose(
                 array, mask_nodatas[index])
 
-        # output_array = numpy.full(pixels_in_any_mask.shape,
-        #                           ref_nodata, dtype=ref_info['numpy_type'])
-        # output_array[pixels_in_any_mask] = 1
+        output_array = numpy.full(pixels_with_complete_overlap.shape,
+                                  ref_nodata, dtype=ref_info['numpy_type'])
+        output_array[pixels_with_complete_overlap] = 1
 
-        return pixels_in_any_mask
+        return pixels_with_complete_overlap
 
     pygeoprocessing.raster_calculator(
         [(path, 1) for path in aligned_mask_paths],
