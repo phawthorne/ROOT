@@ -1,4 +1,6 @@
 .DS_Store
+.eggs
+natcap.root.egg-info
 deprecated_code/
 **/__pycache__/
 sample_*/

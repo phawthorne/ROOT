@@ -585,6 +585,37 @@ def validate_sdu_shape_arg(arg_val):
         raise RootInputError(msg)
 
 
+# def validate_cft_table(rt_path, st_path, cft_path):
+#     rt = pd.read_csv(rt_path)
+#     st = pd.read_csv(st_path)
+#     cft = pd.read_csv(cft_path)
+
+#     raster_factors = list(rt['name'])
+#     shape_factors = []
+#     for _, row in st.iterrows():
+#         sname = row['name']
+#         shape_factors.append(sname)
+#         wcols = row['weight_col'].split(' ')
+#         for wc in wcols:
+#             shape_factors.append('{}_{}'.format(sname, wc))
+#     all_factors = raster_factors + shape_factors
+
+#     invalid_factors = []
+#     for _, row in cft.iterrows():
+#         factors = row['factors'].split(' ')
+#         for f in factors:
+#             if f not in all_factors:
+#                 try:
+#                     float(f)
+#                     continue
+#                 except ValueError:
+#                     invalid_factors.append(f)
+
+#     if len(invalid_factors) > 0:
+#         msg = "Error in CF table: invalid factors found: {}".format(invalid_factors)
+#         raise RootInputError(msg)
+
+
 def validate_cft_table(rt_path, st_path, cft_path):
     """
 
@@ -757,7 +788,7 @@ class Root(model.InVESTModel):
 
         self.preprocessing_container = inputs.Container(
             args_key=u'preprocessing_container',
-            expandable=False,
+            expandable=True,
             expanded=True,
             label=u'Preprocessing Arguments')
         self.add_input(self.preprocessing_container)
@@ -800,7 +831,7 @@ class Root(model.InVESTModel):
 
         self.optimization_container = inputs.Container(
             args_key=u'optimization_container',
-            expandable=False,
+            expandable=True,
             expanded=True,
             label=u'Optimization Arguments')
         self.add_input(self.optimization_container)

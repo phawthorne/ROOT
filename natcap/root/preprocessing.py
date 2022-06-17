@@ -321,6 +321,9 @@ def _build_ip_table(
             have the columns:
                 SDU_ID,pixel_count,area_ha,maskpixct,maskpixha,mv_ida,mv_ida_perHA
     """
+    
+    # print(f"marginal_value_lookup = {marginal_value_lookup}")
+    
     if activity_name is not None:
         try:
             activity_index = activity_list.index(activity_name)
@@ -341,6 +344,8 @@ def _build_ip_table(
         #         sdu_col_name, activity_name, activity_name))
         # This gets the "first" value in the dict, then the keys of that dict
         # also makes sense to sort them so it's easy to navigate the CSV.
+        # marginal_value_ids = sorted(
+        #     marginal_value_lookup.values().next()[1].keys())
         marginal_value_ids = sorted(
             list(marginal_value_lookup.values())[0][1].keys())
         n_mv_ids = len(marginal_value_ids)
@@ -495,7 +500,7 @@ def _aggregate_marginal_values(
     # TODO: drop activity mask, get activity from the rasters - require nodata for non-transition pixels
 
     print('marginal_value_lookup: {}'.format(marginal_value_lookup))
-    marginal_value_ids = marginal_value_lookup.keys()
+    marginal_value_ids = list(marginal_value_lookup.keys())
     with tempfile.NamedTemporaryFile(dir='.', delete=False) as id_raster_file:
         id_raster_path = id_raster_file.name
 
@@ -634,7 +639,8 @@ def _remove_nonoverlapping_sdus(vector_path, mask_raster_path, key_id_field):
     for mask_offset, mask_block in pygeoprocessing.iterblocks(
             (mask_raster_path, 1)):
         id_block = id_band.ReadAsArray(**mask_offset)
-        valid_mask = mask_block != mask_nodata
+        # valid_mask = mask_block != mask_nodata
+        valid_mask = ~np.isclose(mask_block, mask_nodata)
         covered_ids.update(np.unique(id_block[valid_mask]))
 
     # cleanup the ID raster since we're done with it
@@ -896,6 +902,46 @@ def _copy_sdu_file(source, dest):
         shutil.copy(f, new_f)
 
 
+# def _create_overlapping_activity_mask(mask_path_list, target_file,
+#                                       reference_mask=0):
+
+#     # TODO: get nodata vals from each mask_path, make comparison against those instead of np.nan
+#     # need them as closure in this function, zip with vals to line up
+
+#     mask_nodatas = [
+#         pygeoprocessing.get_raster_info(raster_path)['nodata'][0] for
+#         raster_path in mask_path_list]
+    
+#     ref_info = pygeoprocessing.get_raster_info(mask_path_list[reference_mask])
+#     ref_dtype = ref_info['dtype']
+#     ref_nodata = ref_info['nodata'][0]
+#     pixel_size = ref_info['pixel_size']
+
+#     def pixel_op(*vals):
+#         if all([x == nodata for x, nodata in zip(vals, mask_nodatas)]):
+#             return ref_nodata
+#         else:
+#             return 1
+
+#     pygeoprocessing.raster_calculator(
+#         [(raster, 1) for raster in mask_path_list]
+#     )
+
+
+#     pygeoprocessing.vectorize_datasets(
+#         mask_path_list,
+#         pixel_op,
+#         target_file,
+#         ref_dtype,
+#         ref_nodata,
+#         pixel_size,
+#         bounding_box_mode='dataset',
+#         dataset_to_align_index=reference_mask,
+#         dataset_to_bound_index=reference_mask,
+#     )
+
+
+
 def _create_overlapping_activity_mask(mask_path_list, target_file,
                                       aligned_paths_directory,
                                       reference_mask=0):
@@ -934,18 +980,18 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
             pixels_with_complete_overlap &= numpy.isclose(
                 array, mask_nodatas[index])
 
-        output_array = numpy.full(pixels_with_complete_overlap.shape,
-                                  ref_nodata, dtype=ref_info['numpy_type'])
-        output_array[pixels_with_complete_overlap] = 1
+        # output_array = numpy.full(pixels_in_any_mask.shape,
+        #                           ref_nodata, dtype=ref_info['numpy_type'])
+        # output_array[pixels_in_any_mask] = 1
 
-        return pixels_with_complete_overlap
+        return pixels_in_any_mask
 
     pygeoprocessing.raster_calculator(
         [(path, 1) for path in aligned_mask_paths],
         all_pixels_have_value,
         target_file,
         ref_info['datatype'],
-        ref_nodata)
+        0)
 
 
 if __name__ == '__main__':
