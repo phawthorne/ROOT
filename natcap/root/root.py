@@ -3,10 +3,7 @@
 import os
 import sys
 import logging
-import collections
 import csv
-import uuid
-import json
 import multiprocessing
 from math import sqrt
 
@@ -17,10 +14,10 @@ import PySide2  # pragma: no cover
 from qtpy import QtWidgets
 from qtpy import QtGui
 from natcap.invest.ui import model, inputs
-
-sys.path.extend([os.getcwd()])
-
 from natcap.invest import validation
+import pygeoprocessing
+
+from natcap.root import __version__
 from natcap.root import preprocessing
 from natcap.root import postprocessing
 from natcap.root import optimization
@@ -47,8 +44,9 @@ ARGS_SPEC = {
     'module': __name__,
     'userguide_html': '../documentation/root.html',
     'args_with_spatial_overlap': {
-        "spatial_keys": ['potential_conversion_mask_path',
-                         'spatial_decision_unit_shape'],
+        # "spatial_keys": ['potential_conversion_mask_path',
+        #                  'spatial_decision_unit_shape'],
+        "spatial_keys": [],
     },
     'args': {
         'workspace_dir': validation.WORKSPACE_SPEC,
@@ -63,7 +61,7 @@ ARGS_SPEC = {
         },
         'activity_mask_table_path': {
             'type': 'csv',
-            'required': True,
+            'required': False,
             'about': (
                 "Table with paths for activity masks. See User's Guide."),
             'name': 'Activity Mask Table (CSV)',
@@ -122,7 +120,7 @@ ARGS_SPEC = {
         },
         'spatial_decision_unit_area': {
             'type': 'number',
-            'required': True,
+            'required': False,
             'about': (
                 "Area of each grid cell in the constructed grid. "
                 "Measured in hectares (1 ha = 10,000m^2). This is "
@@ -208,7 +206,7 @@ def execute(args):
     """root.
 
     """
-
+    LOGGER.info(f'Running ROOT version {__version__}')
     internal_args = parse_args(args)
 
     # with open(os.path.join(internal_args['workspace'], 'root_args.json'), 'w') as root_args_file:
@@ -259,14 +257,13 @@ def parse_args(ui_args):
                            ui_args['combined_factor_table_path'])
         validate_sdu_shape_arg(ui_args['spatial_decision_unit_shape'])
 
-        # root_args['mask_raster'] = ui_args['potential_conversion_mask_path']
         root_args['activity_mask_table_path'] = ui_args['activity_mask_table_path']
         root_args['grid_type'] = ui_args['spatial_decision_unit_shape']
         cell_area = float(ui_args['spatial_decision_unit_area']) * 10000
         if root_args['grid_type'] == 'square':
             root_args['cell_size'] = sqrt(cell_area)
         elif root_args['grid_type'] == 'hexagon':
-            a = sqrt( (2*cell_area) / (3*sqrt(3)) )
+            a = sqrt((2*cell_area) / (3*sqrt(3)))
             root_args['cell_size'] = 2 * a
 
         root_args['csv_output_folder'] = os.path.join(root_args['workspace'], 'sdu_value_tables')
@@ -302,7 +299,7 @@ def parse_args(ui_args):
         # TODO: this should be optional, too.
         combined_factors = {}
         if 'combined_factor_table_path' in ui_args and os.path.isfile(ui_args['combined_factor_table_path']):
-            with open(ui_args['combined_factor_table_path'], 'rU') as tablefile:
+            with open(ui_args['combined_factor_table_path'], 'r') as tablefile:
                 reader = csv.DictReader(tablefile)
                 for row in reader:
                     combined_factors[row['name']] = [x.strip() for x in row['factors'].split(' ')]
@@ -404,7 +401,7 @@ def _process_raster_table(filename):
             self.filepath = filepath
             self.raster_lookup = {}
             self.factor_names = []
-            with open(filename, 'rU') as tablefile:
+            with open(filename, 'r') as tablefile:
                 header = tablefile.readline()
                 header_fields = [f.strip() for f in header.split(',')]
                 assert header_fields[0] == 'name'
@@ -445,7 +442,7 @@ def _process_objectives_table(ui_args, root_args):
         optimization_objectives = {}
         min_choices = ['Minimize', 'minimize', 'Min', 'min', 'Minimum', 'minimum']
         max_choices = ['Maximize', 'maximize', 'Max', 'max', 'Maximum', 'maximum']
-        with open(ui_args['objectives_table_path'], 'rU') as tablefile:
+        with open(ui_args['objectives_table_path'], 'r') as tablefile:
             var_names = tablefile.readline().strip().split(',')
             minmax = tablefile.readline().strip().split(',')
             for v, mm in zip(var_names, minmax):
@@ -706,8 +703,16 @@ def validate_objectives_and_constraints_tables(obj_table_file, cons_table_file, 
         not_found = []
         for row in f:
             row_vals = row.strip().split(',')
-            if row_vals[0] not in factors:
-                not_found.append(row_vals[0])
+            c_expr = row_vals[0]
+            c_factors = ap._tokenize(c_expr)
+            for f in c_factors:
+                if f not in factors and f not in ap.ALL_AP_TOKENS:
+                    try:
+                        float(f)
+                        continue
+                    except ValueError:
+                        not_found.append(f)
+
         if len(not_found) > 0:
             msg = "Error in Targets table. The following factors were not found in the sdu value tables: {}".format(
                 not_found
@@ -716,8 +721,26 @@ def validate_objectives_and_constraints_tables(obj_table_file, cons_table_file, 
 
 
 def validate(args, limit_to=None):
-    return validation.validate(
+    validation_warnings = validation.validate(
         args, ARGS_SPEC['args'], ARGS_SPEC['args_with_spatial_overlap'])
+
+    invalid_keys = validation.get_invalid_keys(validation_warnings)
+
+    if 'spatial_decision_unit_shape' not in invalid_keys:
+        sdu_valid = True
+        try:
+            if not validate_sdu_shape_arg(args['spatial_decision_unit_shape']):
+                sdu_valid = False
+        except RootInputError:
+            sdu_valid = False
+
+        if not sdu_valid:
+            validation_warnings.append(
+                (['spatial_decision_unit_shape'],
+                 ('Spatial Decision Unit Shape must be "square", "hexagon", '
+                  'or a path to a vector')))
+
+    return validation_warnings
 
 
 def _create_input_kwargs_from_args_spec(args_key, validate=True):
@@ -756,6 +779,13 @@ class Root(model.InVESTModel):
             localdoc=u'../documentation/root.html'
         )
 
+        # Explicitly setting the default workspace because the InVEST UI's
+        # approach relies on self.target.__module__, which isn't reliable when
+        # execute is in the same script as the launcher.  In this case, the
+        # module name is __main__.  Technically true, but not user-readable.
+        self.workspace.set_value(os.path.normpath(
+            os.path.expanduser('~/Documents/root_workspace')))
+
         self.preprocessing_container = inputs.Container(
             args_key=u'preprocessing_container',
             expandable=True,
@@ -771,7 +801,6 @@ class Root(model.InVESTModel):
         self.activity_mask_raster_path = inputs.File(
             **_create_input_kwargs_from_args_spec('activity_mask_table_path'))
         self.preprocessing_container.add_input(self.activity_mask_raster_path)
-
 
         self.marginal_raster_table_path = inputs.File(
             **_create_input_kwargs_from_args_spec('marginal_raster_table_path'))

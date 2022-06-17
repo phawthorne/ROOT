@@ -10,7 +10,6 @@ import math
 import tempfile
 import collections
 import glob
-import json
 import shapely.wkb
 import shapely.prepared
 
@@ -233,14 +232,13 @@ def _serviceshed_coverage(
     sdu_lookup = {}
     for sdu_feature in sdu_layer:
         sdu_lookup[sdu_feature.GetField(str(sdu_id_fieldname))] = (
-            shapely.wkb.loads(sdu_feature.GetGeometryRef().ExportToWkb()))
+            shapely.wkb.loads(bytes(sdu_feature.GetGeometryRef().ExportToWkb())))
     sdu_layer = None
     sdu_vector = None
 
     result = collections.defaultdict(
         lambda: collections.defaultdict(
             lambda: [0.0, collections.defaultdict(float)]))
-
 
     for serviceshed_id, serviceshed_path in zip(
             serviceshed_id_list, serviceshed_path_list):
@@ -251,7 +249,7 @@ def _serviceshed_coverage(
             for serviceshed_feature in serviceshed_layer:
                 serviceshed_geometry = serviceshed_feature.GetGeometryRef()
                 serviceshed_polygon = shapely.wkb.loads(
-                    serviceshed_geometry.ExportToWkb())
+                    bytes(serviceshed_geometry.ExportToWkb()))
                 prep_serviceshed_polygon = shapely.prepared.prep(
                     serviceshed_polygon)
                 for sdu_id, sdu_poly in sdu_lookup.items():
@@ -350,7 +348,6 @@ def _build_ip_table(
         #     marginal_value_lookup.values().next()[1].keys())
         marginal_value_ids = sorted(
             list(marginal_value_lookup.values())[0][1].keys())
-        print(f"marginal_value_ids = {marginal_value_ids}")
         n_mv_ids = len(marginal_value_ids)
         target_ip_file.write((",%s" * n_mv_ids) % tuple(marginal_value_ids))
         # target_ip_file.write(
@@ -451,7 +448,8 @@ def _clean_negative_nodata_values(
         print(
             "Base raster doesn't have a large nodata value; it's likely"
             " not one of the corrupt float32.min rasters we were dealing"
-            f" with.  Copying {base_raster_path} to {target_clean_raster_path} without modification.")
+            " with.  Copying %s to %s without modification." % (
+                base_raster_path, target_clean_raster_path))
         shutil.copy(base_raster_path, target_clean_raster_path)
 
     pygeoprocessing.new_raster_from_base(
@@ -508,7 +506,7 @@ def _aggregate_marginal_values(
 
     id_nodata = -1
     pygeoprocessing.new_raster_from_base(
-        marginal_value_lookup[marginal_value_ids[0]], id_raster_path,
+        marginal_value_lookup[list(marginal_value_ids)[0]], id_raster_path,
         gdal.GDT_Int32, band_nodata_list=[id_nodata],
         fill_value_list=[id_nodata])
 
@@ -956,8 +954,8 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
         raster_path in mask_path_list]
 
     ref_info = pygeoprocessing.get_raster_info(mask_path_list[reference_mask])
+    # ref_info = pygeoprocessing.get_raster_info(mask_path_list[reference_mask])
     ref_nodata = ref_info['nodata'][0]
-    pixel_size = ref_info['pixel_size']
 
     # Align stack to the reference dataset's bounding box using
     # nearest-neighbor interpolation.
@@ -969,13 +967,17 @@ def _create_overlapping_activity_mask(mask_path_list, target_file,
         ref_info['pixel_size'], bounding_box_mode=ref_info['bounding_box'])
 
     def all_pixels_have_value(*vals):
-        pixels_in_any_mask = numpy.zeros(
-            vals[0].shape, dtype=bool)
+        pixels_with_complete_overlap = numpy.ones(vals[0].shape, dtype=numpy.bool)
+        # pixels_with_complete_overlap[:] = 1  # assume all valid
 
+        print(pixels_with_complete_overlap.shape)
+        print(vals)
         for index, array in enumerate(vals):
+            print(array.shape)
+            print(mask_nodatas[index])
             # numpy.isclose will work for floating-point and integer rasters,
             # direct equality comparison will not.
-            pixels_in_any_mask |= ~numpy.isclose(
+            pixels_with_complete_overlap &= numpy.isclose(
                 array, mask_nodatas[index])
 
         # output_array = numpy.full(pixels_in_any_mask.shape,
